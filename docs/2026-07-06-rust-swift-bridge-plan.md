@@ -204,19 +204,6 @@ Must run the underlying (blocking, semaphore-based) Swift call inside
 `tauri::async_runtime::spawn_blocking`, since it blocks its calling thread until Swift's `Task`
 completes — never call it directly on an async command's executor thread.
 
-### Step 4: Minimal test harness
-Mirror the Qwen3-TTS harness pattern (`hamptus-mlx-swift-qwen3-tts/src/App.tsx`): a minimal
-frontend with a text input for a local file path invoking `transcribe_audio_path`. Display
-`transcript`/`detectedLanguageCode` from the result. Manually click through this path — this
-project has no GUI-automation tool available either, per the Qwen3-TTS session's own finding, so
-flag this as manual-verification-required rather than claiming it's tested from logs alone.
-
-### Step 5: Packaged-app verification
-Run a signed `.app` build (`cargo tauri build`), not just `cargo tauri dev`, and confirm:
-- the Core ML model downloads to and loads from a writable, persistent location outside the app
-  bundle (e.g. Application Support), since bundles themselves are typically read-only/sandboxed
-  once signed;
-- transcription returns correct text against a known sample, same as in dev.
 
 ## Explicitly out of scope for this plan
 
@@ -239,8 +226,6 @@ Run a signed `.app` build (`cargo tauri build`), not just `cargo tauri dev`, and
   `hamptus-mlx-swift-qwen3-tts/src-tauri` consumes `qwen3-tts-swift-rs`, works end-to-end via
   `cargo tauri dev` with no manual build steps, and the Tauri command is manually exercised
   from the running UI (not just log inspection).
-- The packaged, signed `.app` runs standalone and transcribes correctly, with the Core ML model
-  cache living somewhere writable and persistent.
 
 ## Ansnwered review questions:
 1. **Timestamp shape.**  - just use whatever is returned by whisperkit

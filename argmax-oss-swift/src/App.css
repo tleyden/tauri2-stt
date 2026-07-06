@@ -1,19 +1,16 @@
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafb);
-}
 :root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
+  line-height: 1.5;
+  color: #17201d;
+  background: #f4f6f2;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -21,96 +18,162 @@
   -webkit-text-size-adjust: 100%;
 }
 
-.container {
+* {
+  box-sizing: border-box;
+}
+
+body {
   margin: 0;
-  padding-top: 10vh;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 32px;
+}
+
+.workspace {
+  width: min(960px, 100%);
+  margin: 0 auto;
+}
+
+.header {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 0 24px;
+  border-bottom: 1px solid #d7ddd2;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
+.header h1 {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1.15;
+  font-weight: 700;
 }
 
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
+.header p {
+  max-width: 360px;
+  margin: 0;
+  color: #4b5b54;
+  text-align: right;
 }
 
-.row {
+.transcription-form {
+  display: grid;
+  gap: 18px;
+  padding: 24px 0;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span,
+.result-meta span {
+  color: #5f6d67;
+  font-size: 0.85rem;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.field input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #bfc9c1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #17201d;
+  background: #ffffff;
+}
+
+.options {
   display: flex;
-  justify-content: center;
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+.options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #2a3631;
 }
 
-a:hover {
-  color: #535bf2;
+.options input {
+  width: 18px;
+  height: 18px;
+  accent-color: #1f7a5a;
 }
 
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+.actions {
+  display: flex;
+  justify-content: flex-start;
 }
 
 button {
+  min-height: 42px;
+  border: 1px solid #176347;
+  border-radius: 6px;
+  padding: 9px 16px;
+  color: #ffffff;
+  background: #1f7a5a;
+  font-weight: 700;
   cursor: pointer;
 }
 
 button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
+  background: #176347;
 }
 
-input,
-button {
-  outline: none;
+.result-panel {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid #d7ddd2;
+  padding: 24px 0 0;
 }
 
-#greet-input {
-  margin-right: 5px;
+.result-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+.result-meta strong {
+  color: #17201d;
+}
+
+pre {
+  min-height: 280px;
+  max-height: 520px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid #cdd6cf;
+  border-radius: 6px;
+  padding: 16px;
+  color: #17201d;
+  background: #ffffff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 700px) {
+  .app-shell {
+    padding: 20px;
   }
 
-  a:hover {
-    color: #24c8db;
+  .header {
+    align-items: start;
+    flex-direction: column;
   }
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
+  .header p {
+    text-align: left;
   }
 }

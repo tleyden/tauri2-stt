@@ -1,49 +1,105 @@
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type TranscriptionResult = {
+  transcript: string;
+  detectedLanguageCode: string | null;
+};
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+const defaultAudioPath =
+  "/Users/tleyden/Development/tauri2-stt/argmax-oss-swift/notebook_lm_podcast_30s.wav";
+
+function App() {
+  const [audioPath, setAudioPath] = useState(defaultAudioPath);
+  const [wordTimestamps, setWordTimestamps] = useState(true);
+  const [withoutTimestamps, setWithoutTimestamps] = useState(false);
+  const [result, setResult] = useState<TranscriptionResult | null>(null);
+  const [status, setStatus] = useState("Loading WhisperKit model...");
+
+  async function transcribe() {
+    setResult(null);
+    setStatus("Transcribing...");
+
+    try {
+      const transcription = await invoke<TranscriptionResult | null>(
+        "transcribe_audio_path",
+        {
+          path: audioPath,
+          wordTimestamps,
+          withoutTimestamps,
+        },
+      );
+
+      setResult(transcription);
+      setStatus(
+        transcription ? "Transcription complete." : "No transcript returned.",
+      );
+    } catch (err) {
+      setStatus(`Transcription failed: ${err}`);
+    }
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <main className="app-shell">
+      <section className="workspace">
+        <header className="header">
+          <h1>WhisperKit transcription</h1>
+          <p>{status}</p>
+        </header>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+        <form
+          className="transcription-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            transcribe();
+          }}
+        >
+          <label className="field">
+            <span>Audio path</span>
+            <input
+              value={audioPath}
+              onChange={(event) => setAudioPath(event.currentTarget.value)}
+              spellCheck={false}
+            />
+          </label>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+          <div className="options">
+            <label>
+              <input
+                type="checkbox"
+                checked={wordTimestamps}
+                onChange={(event) =>
+                  setWordTimestamps(event.currentTarget.checked)
+                }
+              />
+              Word timestamps
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={withoutTimestamps}
+                onChange={(event) =>
+                  setWithoutTimestamps(event.currentTarget.checked)
+                }
+              />
+              Without timestamps
+            </label>
+          </div>
+
+          <div className="actions">
+            <button type="submit">Transcribe</button>
+          </div>
+        </form>
+
+        <section className="result-panel" aria-live="polite">
+          <div className="result-meta">
+            <span>Detected language</span>
+            <strong>{result?.detectedLanguageCode ?? "-"}</strong>
+          </div>
+          <pre>{result?.transcript ?? ""}</pre>
+        </section>
+      </section>
     </main>
   );
 }

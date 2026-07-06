@@ -44,3 +44,14 @@ bun run tauri dev
 #### Risks
 
 1. Async API, needs to be wrapped in sync wrappers on the swift side
+
+
+### Option 2: WhisperX
+
+#### Strengths
+
+1. Accurate timestamps
+
+#### Risks
+
+1. Requires python sidecar

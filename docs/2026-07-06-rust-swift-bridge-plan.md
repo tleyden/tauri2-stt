@@ -297,27 +297,224 @@ Run a signed `.app` build (`cargo tauri build`), not just `cargo tauri dev`, and
 - The packaged, signed `.app` runs standalone and transcribes correctly, with the Core ML model
   cache living somewhere writable and persistent.
 
-## Open questions for review before implementation
+## Ansnwered review questions:
+1. **Timestamp shape.**  - just use whatever is returned by whisperkit
+2. **Default model.** `large-v3-v20240930_626MB` yes, good default model
 
-1. **Timestamp shape.** The `TranscriptionResult` interface the user provided has only
-   `transcript`/`detectedLanguageCode`/`detectedLanguageConfidence` — no `segments`/`words` array.
-   So "with timestamps" most likely means the `transcript` string itself gets inline bracketed
-   timestamps (like `TranscriptPrinter.render`'s `[12.34s - 15.67s] ...` lines) when requested,
-   rather than a structured array. Confirm this reading before Step 5 locks in the JSON shape —
-   the alternative is adding an optional `segments`/`words` field to the struct, which is easy to
-   add later but changes the "flat scalar JSON" assumption in the risk table.
-2. **Default model.** `large-v3-v20240930_626MB` (accurate, slow first download) vs. something
-   smaller for day-to-day dev. Recommend starting Phase 1's decisive test with `tiny` purely for
-   iteration speed, then deciding the shipped default separately in Phase 2 Step 2.
-3. **Confidence cost.** Computing `detectedLanguageConfidence` requires a second, separate
-   `detectLanguage` decoding pass over up to the first 30s of audio (WhisperKit has no API that
-   returns both text and language probabilities in one call). Confirm it's acceptable for this to
-   be opt-in/slower, not always-on.
-4. **Bytes format assumption.** Should raw-bytes input be WAV-only in practice (simplifying
-   `format_hint` to a hardcoded `"wav"` internally), given the user's own mention of "CPAL audio"
-   as the source? The Rust/Swift surface plans to stay format-agnostic via an explicit hint
-   either way, so this only affects whether the Tauri command exposes the parameter or hardcodes it.
-5. **Async→sync bridge safety.** Flagged in the risk table as the one genuinely new risk in this
-   bridge (no precedent in `vision-swift` or `qwen3-tts-swift`, both of which wrap synchronous
-   Swift APIs). Needs explicit verification in Phase 1 Step 4 before building further steps on top
-   of it, rather than assuming the semaphore pattern is safe by analogy.
+5. **Async→sync bridge safety.** acceptable risk.
+here is example safe code from whisperkit cto:
+
+Based on the patterns in the codebase, here are safe sync wrappers for WhisperKit's async API. These follow the `DispatchSemaphore` pattern used in the tests [1](#14-0)  and the deprecated sync methods in `MLTensorExtensions.swift` [2](#14-1) .
+
+---
+
+## Sync Wrapper Extension
+
+```swift
+import Foundation
+import WhisperKit
+
+@available(*, deprecated, message: "Sync wrappers block threads and are not recommended for production. Use async/await instead.")
+extension WhisperKit {
+    
+    /// Synchronous wrapper for WhisperKit initialization
+    /// - Warning: Blocks the calling thread. Not recommended for main thread or production use.
+    public static func syncInit(
+        _ config: WhisperKitConfig = WhisperKitConfig()
+    ) throws -> WhisperKit {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Result<WhisperKit, Error>?
+        
+        Task {
+            do {
+                let whisperKit = try await WhisperKit(config)
+                result = .success(whisperKit)
+            } catch {
+                result = .failure(error)
+            }
+            semaphore.signal()
+        }
+        
+        semaphore.wait()
+        
+        switch result {
+        case .success(let whisperKit):
+            return whisperKit
+        case .failure(let error):
+            throw error
+        case .none:
+            throw WhisperError.transcriptionFailed("Initialization failed with unknown error")
+        }
+    }
+    
+    /// Synchronous wrapper for transcription
+    /// - Warning: Blocks the calling thread. Not recommended for main thread or production use.
+    public func syncTranscribe(
+        audioPath: String,
+        decodeOptions: DecodingOptions? = nil,
+        callback: TranscriptionCallback = nil
+    ) throws -> [TranscriptionResult] {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Result<[TranscriptionResult], Error>?
+        
+        Task {
+            do {
+                let transcription = try await transcribe(
+                    audioPath: audioPath,
+                    decodeOptions: decodeOptions,
+                    callback: callback
+                )
+                result = .success(transcription)
+            } catch {
+                result = .failure(error)
+            }
+            semaphore.signal()
+        }
+        
+        semaphore.wait()
+        
+        switch result {
+        case .success(let transcription):
+            return transcription
+        case .failure(let error):
+            throw error
+        case .none:
+            throw WhisperError.transcriptionFailed("Transcription failed with unknown error")
+        }
+    }
+    
+    /// Synchronous wrapper for language detection
+    /// - Warning: Blocks the calling thread. Not recommended for main thread or production use.
+    public func syncDetectLanguage(
+        audioPath: String
+    ) throws -> (language: String, langProbs: [String: Float]) {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: Result<(language: String, langProbs: [String: Float]), Error>?
+        
+        Task {
+            do {
+                let detected = try await detectLanguage(audioPath: audioPath)
+                result = .success(detected)
+            } catch {
+                result = .failure(error)
+            }
+            semaphore.signal()
+        }
+        
+        semaphore.wait()
+        
+        switch result {
+        case .success(let detected):
+            return detected
+        case .failure(let error):
+            throw error
+        case .none:
+            throw WhisperError.transcriptionFailed("Language detection failed with unknown error")
+        }
+    }
+}
+```
+
+## Usage Example
+
+```swift
+do {
+    // Synchronous initialization
+    let whisperKit = try WhisperKit.syncInit(
+        WhisperKitConfig(model: "large-v3-v20240930_626MB")
+    )
+    
+    // Synchronous transcription
+    let results = try whisperKit.syncTranscribe(
+        audioPath: "audio.wav",
+        decodeOptions: DecodingOptions(wordTimestamps: true)
+    )
+    
+    print(results.first?.text ?? "")
+    
+    // Synchronous language detection
+    let (language, probs) = try whisperKit.syncDetectLanguage(audioPath: "audio.wav")
+    print("Detected: \(language)")
+} catch {
+    print("Error: \(error)")
+}
+```
+
+## Important Warnings
+
+1. **Thread Blocking**: These wrappers block the calling thread and can cause thread exhaustion if used in concurrent contexts [2](#14-1) .
+2. **Main Thread**: Never call these from the main thread in UI applications.
+3. **Production Use**: The async/await pattern is the recommended approach for production code [1](#14-0) .
+4. **Deprecated Pattern**: This follows the same pattern as the deprecated `MLTensorExtensions` sync methods, which are explicitly marked as unsafe for concurrent async contexts.
+
+## Notes
+
+The sync wrappers use the same `DispatchSemaphore` pattern found in the functional tests [1](#14-0) . All methods are marked with `@available(*, deprecated)` to discourage production use. For proper concurrency, use Swift's native `async/await` pattern throughout your application.
+
+Wiki pages you might want to explore:
+- [WhisperKit Tests (argmaxinc/argmax-oss-swift)](/wiki/argmaxinc/argmax-oss-swift#8.1)
+- [Glossary (argmaxinc/argmax-oss-swift)](/wiki/argmaxinc/argmax-oss-swift#9)
+
+### Citations
+
+**File:** Tests/WhisperKitTests/FunctionalTests.swift (L68-84)
+```swift
+    func testBaseImplementation() throws {
+        let audioFilePath = try XCTUnwrap(
+            Bundle.current(for: self).path(forResource: "jfk", ofType: "wav"),
+            "Audio file not found"
+        )
+
+        let dispatchSemaphore = DispatchSemaphore(value: 0)
+
+        Task {
+            let whisperKit = try await XCTUnwrapAsync(await WhisperKit(model: "large-v3"))
+            let transcriptionResult: [TranscriptionResult] = try await whisperKit.transcribe(audioPath: audioFilePath)
+            XCTAssertGreaterThan(transcriptionResult.text.count, 0)
+            dispatchSemaphore.signal()
+        }
+
+        dispatchSemaphore.wait()
+    }
+```
+
+**File:** Sources/ArgmaxCore/MLTensorExtensions.swift (L48-84)
+```swift
+    // MARK: Sync (legacy — uses DispatchSemaphore, unsafe in concurrent async contexts)
+
+    @available(*, deprecated, message: "Use await toIntArray() instead.")
+    func asIntArray() -> [Int] {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: [Int] = []
+        Task(priority: .high) {
+            result = await self.toIntArray()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
+    }
+
+    @available(*, deprecated, message: "Use await toFloatArray() instead.")
+    func asFloatArray() -> [Float] {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result: [Float] = []
+        Task(priority: .high) {
+            result = await self.toFloatArray()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
+    }
+
+    @available(*, deprecated, message: "Use await toMLMultiArray() instead.")
+    func asMLMultiArray() -> MLMultiArray {
+        let semaphore = DispatchSemaphore(value: 0)
+        var result = try! MLMultiArray(shape: [1], dataType: .float16, initialValue: 0.0)
+        Task(priority: .high) {
+            result = await self.toMLMultiArray()
+            semaphore.signal()
+        }
+        semaphore.wait()
+        return result
+    }
+```

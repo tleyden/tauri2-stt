@@ -16,10 +16,12 @@ function App() {
   const [withoutTimestamps, setWithoutTimestamps] = useState(false);
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [status, setStatus] = useState("Loading WhisperKit model...");
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
   async function transcribe() {
     setResult(null);
     setStatus("Transcribing...");
+    setIsTranscribing(true);
 
     try {
       const transcription = await invoke<TranscriptionResult | null>(
@@ -37,6 +39,8 @@ function App() {
       );
     } catch (err) {
       setStatus(`Transcription failed: ${err}`);
+    } finally {
+      setIsTranscribing(false);
     }
   }
 
@@ -61,6 +65,7 @@ function App() {
               value={audioPath}
               onChange={(event) => setAudioPath(event.currentTarget.value)}
               spellCheck={false}
+              disabled={isTranscribing}
             />
           </label>
 
@@ -72,6 +77,7 @@ function App() {
                 onChange={(event) =>
                   setWordTimestamps(event.currentTarget.checked)
                 }
+                disabled={isTranscribing}
               />
               Word timestamps
             </label>
@@ -82,13 +88,28 @@ function App() {
                 onChange={(event) =>
                   setWithoutTimestamps(event.currentTarget.checked)
                 }
+                disabled={isTranscribing}
               />
               Without timestamps
             </label>
           </div>
 
           <div className="actions">
-            <button type="submit">Transcribe</button>
+            <button
+              type="submit"
+              className="transcribe-button"
+              disabled={isTranscribing}
+              aria-busy={isTranscribing}
+            >
+              {isTranscribing ? (
+                <>
+                  <span className="button-spinner" aria-hidden="true" />
+                  Transcribing...
+                </>
+              ) : (
+                "Transcribe"
+              )}
+            </button>
           </div>
         </form>
 

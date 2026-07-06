@@ -23,9 +23,6 @@ family of bridges).
 - `../tauri2-qwen3-tts/qwen3-tts-swift-rs/build.rs` — the `SwiftLinker::new(...).with_package(...).link()`
   three-line shape. **Skip** the `build_metallib()` half entirely (WhisperKit ships/downloads
   Core ML models, not compiled `.metal` shaders — see risk table row 2).
-- `../makertime/screen-ocr-swift-rs/src/lib.rs` — `resize_image_swift(image: SRData, scale: Float)`
-  is the exact precedent for **raw bytes passed IN** to Swift (not just out), which is new to this
-  bridge family (`vision-swift`/`qwen3-tts-swift` only ever returned `SRData`, never accepted it).
 - `swift-only-poc/Sources/WhisperCLIPocCore/TranscriptionRunner.swift` — the exact
   `WhisperKitConfig` → `WhisperKit(config)` → `DecodingOptions` → `whisperKit.transcribe(audioPath:decodeOptions:)`
   call sequence to wrap, unchanged.
@@ -35,30 +32,19 @@ family of bridges).
   `swift-only-poc/.build/checkouts/argmax-oss-swift/`) confirms two API facts this plan depends on:
   - `WhisperKit.transcribe(audioPath:decodeOptions:)` returns `[TranscriptionResult]`, where
     `TranscriptionResult` (`Sources/WhisperKit/Core/Models.swift:467`) exposes `text` and
-    `language` (a plain detected-language string) but **no confidence score**.
-  - `WhisperKit.detectLanguage(audioPath:) async throws -> (language: String, langProbs: [String: Float])`
-    (`Sources/WhisperKit/Core/WhisperKit.swift:533`) is the only public API exposing per-language
-    probabilities — confirms the user's "the API supports those fields" claim, but means
-    `detectedLanguageConfidence` requires a **second** call/decoding pass, not a free field on the
-    transcribe result.
+    `language` (a plain detected-language string).
   - `AudioProcessor.loadAudio(fromPath:...)` (`Sources/WhisperKit/Core/Audio/AudioProcessor.swift:229`)
-    is `AVAudioFile`-based and file-path only — there is no public in-memory byte-buffer loader.
-    Raw-bytes input therefore needs a temp-file round trip inside the Swift wrapper (bytes in →
-    temp file → same path-based call), the mirror image of `qwen3-tts-swift`'s
-    `synthesize_swift`, which already does a temp-file round trip in the *other* direction
-    (samples → temp WAV file → bytes out).
+    is `AVAudioFile`-based and file-path only, which matches this plan's file-path-only input.
 
 ## Risk ranking
 
 | Risk | Concern | Status |
 | --- | --- | --- |
 | 🟢 | Calling into `argmax-oss-swift`/WhisperKit from a plain SwiftPM package built via `swift build`, no Xcode project | Same shape as `vision-swift`/`qwen3-tts-swift`; `swift-only-poc` itself already builds and runs this exact dependency via plain `swift build`/`swift run` |
-| 🟢 | Passing raw bytes **in** to Swift (`SRData` parameter, not just return value) | Proven by `screen-ocr-swift-rs`'s `resize_image_swift(image: SRData, scale: Float)` |
 | 🟢 | No Metal/`.metallib` resource-bundling problem | Unlike Qwen3-TTS/MLX, WhisperKit is Core ML — no `xcodebuild` fallback ladder needed here |
 | 🟡 | **New:** bridging `async` WhisperKit APIs (`WhisperKit(config)` init and `.transcribe(...)` are both `async throws`) into a synchronous `@_cdecl` export | Not needed in either precedent — `Qwen3TTSPipeline(modelPath:)` and `.generate()` are synchronous. Needs a semaphore-based sync bridge (`Task { ... }` + `DispatchSemaphore`); the Rust-called thread is not part of Swift's cooperative thread pool, so this should be deadlock-safe, but it is unverified in this codebase and must be checked, not assumed |
 | 🟡 | Model distribution: WhisperKit downloads Core ML models from Hugging Face at first use (per `swift-only-poc/README.md`), rather than bundling them at build time | Needs a writable, persistent cache location once wired into a signed `.app` (Phase 2); fine for `cargo run`/dev |
-| 🟡 | Struct-shaped output (`transcript` + `detectedLanguageCode` + `detectedLanguageConfidence`) has no scalar/`SRData`/`SRString` analog in `swift-rs` | Plan: JSON-encode a `Codable` struct into a single `SRString`, decode with `serde_json` on the Rust side. Still just flat scalars — doesn't need `swift-bridge` |
-| 🟡 | Raw bytes alone don't self-describe container format (wav/mp3/m4a) and `AVAudioFile` needs a recognizable file extension | Plan: accept an explicit format/extension parameter alongside the byte buffer (default `"wav"`) |
+| 🟡 | Struct-shaped output (`transcript` + `detectedLanguageCode`) has no scalar/`SRData`/`SRString` analog in `swift-rs` | Plan: JSON-encode a `Codable` struct into a single `SRString`, decode with `serde_json` on the Rust side. Still just flat scalars — doesn't need `swift-bridge` |
 | ⚪ | `swift-bridge` maintenance/complexity | Deferred, as in the Qwen3-TTS plan — nothing here needs richer types than a flat JSON string |
 
 ## Phase 1 — swift-rs wrapper crate (`whisperkit-swift-rs/`)
@@ -128,8 +114,7 @@ Add:
 public func transcribePathSwift(
     audioPath: SRString,
     wordTimestamps: Bool,
-    withoutTimestamps: Bool,
-    includeLanguageConfidence: Bool
+    withoutTimestamps: Bool
 ) -> SRString?
 ```
 
@@ -142,13 +127,8 @@ Build a `Codable` result struct, JSON-encode it, return as `SRString`:
 struct BridgeTranscriptionResult: Codable {
     let transcript: String
     let detectedLanguageCode: String?
-    let detectedLanguageConfidence: Double?
 }
 ```
-
-If `includeLanguageConfidence` is true, make the extra `whisperKit.detectLanguage(audioPath:)` call
-and take `langProbs[language]` as the confidence value; otherwise leave it `nil` to avoid the
-extra ~30s-audio decoding pass on the common path.
 
 Declare in Rust:
 
@@ -157,69 +137,43 @@ swift!(fn transcribe_path_swift(
     audio_path: &SRString,
     word_timestamps: Bool,
     without_timestamps: Bool,
-    include_language_confidence: Bool,
 ) -> Option<SRString>);
 ```
 
 with a thin wrapper that `serde_json::from_str`s the returned string into a
-`TranscriptionResult { transcript: String, detected_language_code: Option<String>, detected_language_confidence: Option<f64> }`.
+`TranscriptionResult { transcript: String, detected_language_code: Option<String> }`.
 Validate against a real audio fixture end-to-end via `cargo run --example transcribe_path`,
 comparing output text against what `swift run WhisperCLIPoc --audio ...` already produces (known
 good, from the working POC). **Use a small/fast model (e.g. `tiny`) for this step**, not the
 default `large-v3-v20240930_626MB`, to keep iteration fast — switch to the production model choice
 in Phase 2.
 
-### Step 6: Raw-bytes input
-Add:
-
-```swift
-@_cdecl("transcribe_bytes_swift")
-public func transcribeBytesSwift(
-    audioBytes: SRData,
-    formatHint: SRString,
-    wordTimestamps: Bool,
-    withoutTimestamps: Bool,
-    includeLanguageConfidence: Bool
-) -> SRString?
-```
-
-Write `audioBytes` to `FileManager.default.temporaryDirectory/<UUID>.<formatHint>`, delegate to the
-same internal helper Step 5 uses, delete the temp file afterward (mirror `synthesize_swift`'s own
-temp-file cleanup, just bytes-in instead of bytes-out). Rust wrapper:
-`transcribe_from_bytes(bytes: &[u8], format_hint: &str, options: TranscribeOptions) -> Option<TranscriptionResult>`.
-`format_hint` defaults to `"wav"` at the call site the user is targeting (CPAL output), but the
-Swift/Rust surface itself stays format-agnostic.
-
-### Step 7: Rust API surface (`whisperkit-swift-rs/src/lib.rs`)
+### Step 6: Rust API surface (`whisperkit-swift-rs/src/lib.rs`)
 
 ```rust
 pub struct TranscribeOptions {
     pub word_timestamps: bool,
     pub without_timestamps: bool,
-    pub include_language_confidence: bool,
 }
 
 pub struct TranscriptionResult {
     pub transcript: String,
     pub detected_language_code: Option<String>,
-    pub detected_language_confidence: Option<f64>,
 }
 
 pub fn load_model(model: &str, prewarm: bool) -> bool;
 pub fn transcribe_from_path(path: &str, options: TranscribeOptions) -> Option<TranscriptionResult>;
-pub fn transcribe_from_bytes(bytes: &[u8], format_hint: &str, options: TranscribeOptions) -> Option<TranscriptionResult>;
 ```
 
-This is the "roughly like `getOrTranscribeAudio`" shape the user asked for, translated to Rust:
-one function per input mode (path vs. bytes), both returning the same optional result type.
+This is the "roughly like `getOrTranscribeAudio`" shape the user asked for, translated to Rust.
 
-### Step 8: Tests
+### Step 7: Tests
 - Unit test the JSON→`TranscriptionResult` decode path with a fixed fixture string (no model
   load, no audio needed) — fast, always-on.
-- An `examples/transcribe_path.rs` and `examples/transcribe_bytes.rs`, gated as manual/opt-in
-  (needs model download + a real audio fixture — none exists in the repo yet; needs a short
-  WAV added under e.g. `whisperkit-swift-rs/test_data/`), mirroring `qwen3-tts-swift-rs`'s
-  `cargo run --example synthesize` validation step.
+- An `examples/transcribe_path.rs`, gated as manual/opt-in (needs model download + a real audio
+  fixture — none exists in the repo yet; needs a short WAV added under e.g.
+  `whisperkit-swift-rs/test_data/`), mirroring `qwen3-tts-swift-rs`'s `cargo run --example synthesize`
+  validation step.
 
 ## Phase 2 — wire up from Tauri Rust
 
@@ -239,35 +193,30 @@ one for faster dev loop. Since `load_model_swift`'s call is blocking (via the St
 run it via `tauri::async_runtime::spawn_blocking` so app startup doesn't stall the async runtime.
 
 ### Step 3: Tauri commands
-Two commands, matching the two Rust functions from Phase 1 Step 7:
+One command, matching the Rust function from Phase 1 Step 6:
 
 ```rust
 #[tauri::command]
-async fn transcribe_audio_path(path: String, word_timestamps: bool, without_timestamps: bool, include_language_confidence: bool) -> Result<Option<TranscriptionResult>, String>
-
-#[tauri::command]
-async fn transcribe_audio_bytes(bytes: Vec<u8>, format_hint: String, word_timestamps: bool, without_timestamps: bool, include_language_confidence: bool) -> Result<Option<TranscriptionResult>, String>
+async fn transcribe_audio_path(path: String, word_timestamps: bool, without_timestamps: bool) -> Result<Option<TranscriptionResult>, String>
 ```
 
-Both must run the underlying (blocking, semaphore-based) Swift call inside
+Must run the underlying (blocking, semaphore-based) Swift call inside
 `tauri::async_runtime::spawn_blocking`, since it blocks its calling thread until Swift's `Task`
 completes — never call it directly on an async command's executor thread.
 
 ### Step 4: Minimal test harness
 Mirror the Qwen3-TTS harness pattern (`hamptus-mlx-swift-qwen3-tts/src/App.tsx`): a minimal
-frontend with (a) a text input for a local file path invoking `transcribe_audio_path`, and (b) a
-file-upload control that reads bytes client-side and invokes `transcribe_audio_bytes`, to exercise
-both code paths. Display `transcript`, `detectedLanguageCode`, `detectedLanguageConfidence` from
-the result. Manually click through both paths — this project has no GUI-automation tool available
-either, per the Qwen3-TTS session's own finding, so flag this as manual-verification-required
-rather than claiming it's tested from logs alone.
+frontend with a text input for a local file path invoking `transcribe_audio_path`. Display
+`transcript`/`detectedLanguageCode` from the result. Manually click through this path — this
+project has no GUI-automation tool available either, per the Qwen3-TTS session's own finding, so
+flag this as manual-verification-required rather than claiming it's tested from logs alone.
 
 ### Step 5: Packaged-app verification
 Run a signed `.app` build (`cargo tauri build`), not just `cargo tauri dev`, and confirm:
 - the Core ML model downloads to and loads from a writable, persistent location outside the app
   bundle (e.g. Application Support), since bundles themselves are typically read-only/sandboxed
   once signed;
-- both transcription paths return correct text against a known sample, same as they did in dev.
+- transcription returns correct text against a known sample, same as in dev.
 
 ## Explicitly out of scope for this plan
 
@@ -280,19 +229,15 @@ Run a signed `.app` build (`cargo tauri build`), not just `cargo tauri dev`, and
 ## Success criteria
 
 - `cargo build` alone (no `xcodebuild`, no manual Swift build step) in `whisperkit-swift-rs`
-  produces a static library that loads a WhisperKit model and transcribes both a file path and a
-  raw byte buffer.
-- `transcribe_from_path`/`transcribe_from_bytes` return a `TranscriptionResult` whose `transcript`
-  matches (module whitespace) what `swift run WhisperCLIPoc --audio ...` already prints for the
-  same input file.
-- `detected_language_code` is populated on every successful transcription; `detected_language_confidence`
-  is populated only when explicitly requested (and costs a visibly separate, optional decoding
-  pass, not hidden overhead on the default path).
+  produces a static library that loads a WhisperKit model and transcribes a file path.
+- `transcribe_from_path` returns a `TranscriptionResult` whose `transcript` matches (modulo
+  whitespace) what `swift run WhisperCLIPoc --audio ...` already prints for the same input file.
+- `detected_language_code` is populated on every successful transcription.
 - `word_timestamps`/`without_timestamps` visibly change the shape of the returned `transcript`
-  (see open question 3 below — needs a decision on format).
+  (see open question 1 below — needs a decision on format).
 - `argmax-oss-swift/src-tauri`, consuming `whisperkit-swift-rs` exactly as
   `hamptus-mlx-swift-qwen3-tts/src-tauri` consumes `qwen3-tts-swift-rs`, works end-to-end via
-  `cargo tauri dev` with no manual build steps, and both Tauri commands are manually exercised
+  `cargo tauri dev` with no manual build steps, and the Tauri command is manually exercised
   from the running UI (not just log inspection).
 - The packaged, signed `.app` runs standalone and transcribes correctly, with the Core ML model
   cache living somewhere writable and persistent.

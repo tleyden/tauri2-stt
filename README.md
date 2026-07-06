@@ -24,7 +24,7 @@ Right now I mainly need it on macOS, so there is a heavy bias towards that platf
 
 ## How to run it
 
-The Tauri 2 app is in [`argmax-oss-swift`](./argmax-oss-swift).
+The Tauri 2 app is in the local repo subdirectory [`./argmax-oss-swift`](./argmax-oss-swift).
 
 ```sh
 cd argmax-oss-swift
@@ -35,7 +35,7 @@ bun run tauri dev
 
 ## Design notes - best integration strategy?
 
-### Option 1: WhisperKit (implemented)
+### Option 1: [argmaxinc/argmax-oss-swift](https://github.com/argmaxinc/argmax-oss-swift) (implemented)
 
 #### Strengths
 

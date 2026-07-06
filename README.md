@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="./AppScreenshot.png" alt="" width="900">
+  <a href="./AppScreenshot.png"><img src="./AppScreenshot.png" alt="App screenshot" width="900"></a>
 </p>
 
 This is a prototyping repo to get a solid local transcription library running from a Tauri2 desktop app, since I am planning to integrate this into the language learning app I'm building: [Fluensy](https://fluensy.app)
@@ -20,6 +20,17 @@ Right now I mainly need it on macOS, so there is a heavy bias towards that platf
 6. Accurate timestamps in transcripts
 7. Streaming transcriptions
 8. Allow for commercial use
+
+
+## How to run it
+
+The Tauri 2 app is in [`argmax-oss-swift`](./argmax-oss-swift).
+
+```sh
+cd argmax-oss-swift
+bun install
+bun run tauri dev
+```
 
 
 ## Design notes - best integration strategy?

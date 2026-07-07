@@ -6,9 +6,13 @@
   <a href="./AppScreenshot.png"><img src="./AppScreenshot.png" alt="App screenshot" width="900"></a>
 </p>
 
-This is a prototyping repo to get a solid local transcription library running from a Tauri2 desktop app, since I am planning to integrate this into the language learning app I'm building: [Fluensy](https://fluensy.app)
+This is part of a series of prototyping repos:
 
-Right now I mainly need it on macOS, so there is a heavy bias towards that platform. 
+1. (this repo) [Local model speech-to-text transcription library running from a Tauri2 desktop app](https://github.com/tleyden/tauri2-stt)
+2. [Text-to-speech local model from Tauri/rust](https://github.com/tleyden/tauri2-qwen3-tts)
+3. [Gemma4-12b from Tauri/rust](https://github.com/tleyden/tauri2-local-llm)
+
+These were created as part of prototyping the different options for use in a few apps I'm building: [Fluensy](https://fluensy.app) (foreign language learning app for professionals) and [brain3](https://github.com/tleyden/brain3) (MCP server for markdown vaults)
 
 ## P0 Requirements
 

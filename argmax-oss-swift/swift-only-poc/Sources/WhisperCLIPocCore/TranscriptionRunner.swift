@@ -62,6 +62,10 @@ public enum TranscriptionRunner {
     let compute = whisperKit.modelCompute
     fputs(
       """
+      Model initialization complete:
+        - Model folder: \(whisperKit.modelFolder?.path ?? "Not specified")
+        - Tokenizer folder: \(whisperKit.tokenizerFolder?.path ?? "Not specified")
+
       Hardware configuration:
         - Mel spectrogram: \(compute.melCompute.displayName) (\(compute.melCompute.description))
         - Audio encoder: \(compute.audioEncoderCompute.displayName) (\(compute.audioEncoderCompute.description))

@@ -40,6 +40,14 @@ private func runSync<T>(_ operationName: String, _ operation: @escaping () async
     }
 }
 
+private func logModelInitialization(for whisperKit: WhisperKit) {
+    print("""
+    whisperkit-swift: model initialization complete:
+      - Model folder: \(whisperKit.modelFolder?.path ?? "Not specified")
+      - Tokenizer folder: \(whisperKit.tokenizerFolder?.path ?? "Not specified")
+    """)
+}
+
 @_cdecl("whisperkit_bridge_smoke_test_swift")
 public func whisperKitBridgeSmokeTestSwift() -> SRString {
     SRString("whisperkit-swift-rs")
@@ -56,6 +64,9 @@ public func loadModelSwift(model: SRString, prewarm: Bool) -> Bool {
         )
         WhisperKitBridgeState.whisperKit = try runSync("WhisperKit initialization") {
             try await WhisperKit(config)
+        }
+        if let whisperKit = WhisperKitBridgeState.whisperKit {
+            logModelInitialization(for: whisperKit)
         }
         return true
     } catch {
